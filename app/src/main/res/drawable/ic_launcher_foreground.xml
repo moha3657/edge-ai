@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Neural Microchip & Document Symbol for Edge AI -->
+    <!-- Outer Chip Frame -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M38,30 L70,30 C74.4,30 78,33.6 78,38 L78,70 C78,74.4 74.4,78 70,78 L38,78 C33.6,78 30,74.4 30,70 L30,38 C30,33.6 33.6,30 38,30 Z" />
+    <!-- Chip Core -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M42,34 L66,34 C68.2,34 70,35.8 70,38 L70,62 C70,64.2 68.2,66 66,66 L42,66 C39.8,66 38,64.2 38,62 L38,38 C38,35.8 39.8,34 42,34 Z" />
+    <!-- Center AI Brain / Node Core -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,42 C51.8,42 50,43.8 50,46 C50,47.2 50.5,48.2 51.3,48.9 L46.9,53.3 C46.2,52.5 45.2,52 44,52 C41.8,52 40,53.8 40,56 C40,58.2 41.8,60 44,60 C46.2,60 48,58.2 48,56 C48,54.8 47.5,53.8 46.7,53.1 L51.1,48.7 C51.8,49.5 52.8,50 54,50 C55.2,50 56.2,49.5 56.9,48.7 L61.3,53.1 C60.5,53.8 60,54.8 60,56 C60,58.2 61.8,60 64,60 C66.2,60 68,58.2 68,56 C68,53.8 66.2,52 64,52 C62.8,52 61.8,52.5 61.1,53.3 L56.7,48.9 C57.5,48.2 58,47.2 58,46 C58,43.8 56.2,42 54,42 Z" />
+    <!-- Chip Pins Top & Bottom -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M44,24 L48,24 L48,30 L44,30 Z M60,24 L64,24 L64,30 L60,30 Z M44,78 L48,78 L48,84 L44,84 Z M60,78 L64,78 L64,84 L60,84 Z" />
+    <!-- Chip Pins Left & Right -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M24,44 L30,44 L30,48 L24,48 Z M24,60 L30,60 L30,64 L24,64 Z M78,44 L84,44 L84,48 L78,48 Z M78,60 L84,60 L84,64 L78,64 Z" />
+</vector>

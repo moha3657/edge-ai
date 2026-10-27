@@ -1,0 +1,6 @@
+{
+  "name": "EdgeAI Offline",
+  "description": "Production-ready 100% offline Edge AI assistant for low-end Android devices with zero-concurrency RAM management, local OCR, and document RAG.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
