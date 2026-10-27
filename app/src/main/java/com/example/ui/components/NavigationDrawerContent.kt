@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hub
@@ -76,6 +77,7 @@ fun AppNavigationDrawer(
     onDeleteConversation: (String) -> Unit,
     onOpenVault: () -> Unit,
     onOpenInspector: () -> Unit,
+    onOpenModels: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -298,6 +300,12 @@ fun AppNavigationDrawer(
                 label = "RAM & Inspector",
                 onClick = onOpenInspector,
                 testTag = "drawer_inspector_link"
+            )
+            DrawerBottomItem(
+                icon = Icons.Default.CloudDownload,
+                label = "Hugging Face Models",
+                onClick = onOpenModels,
+                testTag = "drawer_models_link"
             )
             DrawerBottomItem(
                 icon = Icons.Default.Settings,

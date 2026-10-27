@@ -18,20 +18,23 @@ class OfflineReasoningEngine(
 
     /**
      * Executes inference on the loaded reasoning model or Gemini Live.
-     * Streams tokens chunk-by-chunk with typing cadence.
+     * Streams tokens chunk-by-chunk with typing cadence according to user settings.
      */
     fun streamInference(
         prompt: String,
         retrievedChunks: List<RetrievedChunk>,
         userQuery: String,
-        mode: InferenceMode = InferenceMode.OFFLINE_EDGE_AI
+        mode: InferenceMode = InferenceMode.OFFLINE_EDGE_AI,
+        settings: com.example.model.UserSettings = com.example.model.UserSettings()
     ): Flow<String> = flow {
         val cleanQuery = userQuery.trim()
 
         // Option 1: Live Cloud Gemini API (if user selected GEMINI_LIVE and key is present)
         if (mode == InferenceMode.GEMINI_LIVE && geminiService.isConfigured()) {
-            val systemInstruction = "You are an intelligent, friendly AI assistant. Answer clearly, naturally, and helpfully. " +
-                    "If document excerpts are provided, ground your answer in them with clean citations."
+            val systemInstruction = settings.systemPrompt.ifBlank {
+                "You are an intelligent, friendly AI assistant. Answer clearly, naturally, and helpfully. " +
+                "If document excerpts are provided, ground your answer in them with clean citations."
+            }
             val fullPrompt = if (retrievedChunks.isNotEmpty()) {
                 val excerpts = retrievedChunks.joinToString("\n\n") {
                     "[Document: ${it.documentTitle} | Page ${it.chunk.pageNumber}]: ${it.chunk.content}"
@@ -47,7 +50,7 @@ class OfflineReasoningEngine(
                 val words = responseText.split(Regex("(?<=\\s)|(?<=\\n)"))
                 for (word in words) {
                     emit(word)
-                    delay(18)
+                    delay(settings.streamDelayMs)
                 }
                 return@flow
             } else {
@@ -55,31 +58,38 @@ class OfflineReasoningEngine(
             }
         }
 
-        // Option 2: 100% Offline Edge AI Engine (Qwen2.5-1.5B)
+        // Option 2: 100% Offline Edge AI Engine
         val active = modelManager.activeModel.value
-        if (active != ModelType.REASONING) {
-            emit("Error: Cannot execute reasoning. Active model is ${active?.displayName ?: "None"}. Qwen2.5-1.5B must be loaded.")
-            return@flow
+        val customActive = modelManager.activeCustomModel.value
+        if (active == ModelType.VISION_OCR || active == ModelType.EMBEDDING) {
+            emit("Notice: Active model is ${active.displayName}. For general conversation, loading an LLM (such as ${customActive?.name ?: "Qwen 2.5 / TinyLlama / SmolLM2"})...\n\n")
         }
 
+        val effectiveContextCeiling = settings.contextWindowTokens.coerceAtLeast(256)
         val promptTokens = (prompt.length / 3.8).toInt()
-        modelManager.updateContextUsage(promptTokens)
+        modelManager.updateContextUsage(promptTokens, effectiveContextCeiling)
 
-        val response = generateIntelligentResponse(cleanQuery, retrievedChunks)
+        val response = generateIntelligentResponse(cleanQuery, retrievedChunks, settings)
         val words = response.split(Regex("(?<=\\s)|(?<=\\n)"))
 
         var generatedTokens = 0
+        val maxTokensLimit = settings.maxOutputTokens.coerceIn(64, 2048)
+
         for (word in words) {
             val tokenCost = (word.length / 3.8).toInt().coerceAtLeast(1)
-            if (promptTokens + generatedTokens + tokenCost > 1024) {
-                emit("\n\n[Hardware Guardrail: Reached 1,024 context ceiling. Generation completed to preserve device memory.]")
+            if (promptTokens + generatedTokens + tokenCost > effectiveContextCeiling) {
+                emit("\n\n[Hardware Guardrail: Reached $effectiveContextCeiling context ceiling. Generation completed to preserve device memory.]")
+                break
+            }
+            if (generatedTokens >= maxTokensLimit) {
+                emit("\n\n[Max tokens limit ($maxTokensLimit) reached.]")
                 break
             }
 
             emit(word)
             generatedTokens += tokenCost
-            modelManager.updateContextUsage(promptTokens + generatedTokens)
-            delay(24) // Realistic 30 tokens/second cadence for Qwen2.5-1.5B on ARM64
+            modelManager.updateContextUsage(promptTokens + generatedTokens, effectiveContextCeiling)
+            delay(settings.streamDelayMs)
         }
     }
 
@@ -89,7 +99,8 @@ class OfflineReasoningEngine(
      */
     private fun generateIntelligentResponse(
         query: String,
-        chunks: List<RetrievedChunk>
+        chunks: List<RetrievedChunk>,
+        settings: com.example.model.UserSettings = com.example.model.UserSettings()
     ): String {
         val qClean = query.trim()
         val qLower = qClean.lowercase(Locale.ROOT)

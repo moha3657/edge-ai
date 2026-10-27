@@ -1,5 +1,6 @@
 package com.example.service
 
+import com.example.model.HuggingFaceModel
 import com.example.model.ModelManagerState
 import com.example.model.ModelTransitionLog
 import com.example.model.ModelType
@@ -25,6 +26,9 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
 
     private val _activeModel = MutableStateFlow<ModelType?>(null)
     val activeModel: StateFlow<ModelType?> = _activeModel.asStateFlow()
+
+    private val _activeCustomModel = MutableStateFlow<HuggingFaceModel?>(null)
+    val activeCustomModel: StateFlow<HuggingFaceModel?> = _activeCustomModel.asStateFlow()
 
     private val _transitionLogs = MutableStateFlow<List<ModelTransitionLog>>(emptyList())
     val transitionLogs: StateFlow<List<ModelTransitionLog>> = _transitionLogs.asStateFlow()
@@ -52,15 +56,21 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
 
         // STEP 1: If another model is active, UNLOAD it first
         val current = _activeModel.value
-        if (current != null) {
-            onProgress("Unloading ${current.displayName} to free ~${current.ramEstimateMB}MB RAM...")
-            _state.value = ModelManagerState.Unloading(current)
+        val currentCustom = _activeCustomModel.value
+        val currentName = current?.displayName ?: currentCustom?.name
+        if (currentName != null) {
+            val ramEst = current?.ramEstimateMB ?: currentCustom?.ramEstimateMB ?: 800
+            onProgress("Unloading $currentName to free ~${ramEst}MB RAM...")
+            if (current != null) {
+                _state.value = ModelManagerState.Unloading(current)
+            }
             val unloadStart = System.currentTimeMillis()
 
             // Release native context buffer & clear references
             nativeContextHandle = null
             _contextTokensUsed.value = 0
             _activeModel.value = null
+            _activeCustomModel.value = null
 
             // Force JVM Garbage Collection & yield to OS
             System.gc()
@@ -69,7 +79,7 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
             val memAfterUnload = memoryMonitor.getSnapshot().usedRamMB
             logTransition(
                 action = "UNLOAD",
-                modelName = current.displayName,
+                modelName = currentName,
                 ramBefore = memBefore,
                 ramAfter = memAfterUnload,
                 durationMs = System.currentTimeMillis() - unloadStart
@@ -81,10 +91,11 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
         _state.value = ModelManagerState.Loading(target)
         val loadStart = System.currentTimeMillis()
 
-        // Simulated native initialization of weights & KV cache (max context 1024)
+        // Simulated native initialization of weights & KV cache
         delay(250) // Emulate GGUF mmap load & tensor initialization
         nativeContextHandle = System.currentTimeMillis()
         _activeModel.value = target
+        _activeCustomModel.value = null
         _state.value = ModelManagerState.Loaded(target, target.ramEstimateMB)
 
         val memAfterLoad = memoryMonitor.getSnapshot().usedRamMB
@@ -101,17 +112,75 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
     }
 
     /**
+     * Loads a downloaded Hugging Face model file into RAM.
+     */
+    suspend fun loadHuggingFaceModel(
+        hfModel: HuggingFaceModel,
+        onProgress: (String) -> Unit = {}
+    ): Boolean = mutex.withLock {
+        // Map curated to ModelType if matching
+        val matchedType = when (hfModel.id) {
+            "hf_qwen25_05b" -> ModelType.QWEN_05B
+            "hf_tinyllama_11b" -> ModelType.TINY_LLAMA
+            "hf_smollm2_17b" -> ModelType.SMOLLM2_17B
+            "hf_deepseek_r1_15b" -> ModelType.DEEPSEEK_R1_15B
+            "hf_phi2_27b" -> ModelType.PHI2_27B
+            "hf_all_minilm_l6" -> ModelType.EMBEDDING
+            else -> null
+        }
+
+        val memBefore = memoryMonitor.getSnapshot().usedRamMB
+
+        // Unload existing model
+        val currentName = _activeModel.value?.displayName ?: _activeCustomModel.value?.name
+        if (currentName != null) {
+            onProgress("Unloading $currentName to free RAM...")
+            nativeContextHandle = null
+            _contextTokensUsed.value = 0
+            _activeModel.value = null
+            _activeCustomModel.value = null
+            System.gc()
+            delay(150)
+        }
+
+        onProgress("Loading ${hfModel.name} (${hfModel.quantization}) into RAM...")
+        val loadStart = System.currentTimeMillis()
+        delay(300)
+
+        nativeContextHandle = System.currentTimeMillis()
+        _activeModel.value = matchedType ?: ModelType.REASONING
+        _activeCustomModel.value = hfModel
+        _state.value = ModelManagerState.Loaded(_activeModel.value!!, hfModel.ramEstimateMB)
+
+        val memAfter = memoryMonitor.getSnapshot().usedRamMB
+        logTransition(
+            action = "LOAD_HF",
+            modelName = hfModel.name,
+            ramBefore = memBefore,
+            ramAfter = memAfter,
+            durationMs = System.currentTimeMillis() - loadStart
+        )
+
+        onProgress("${hfModel.name} loaded into RAM successfully.")
+        return true
+    }
+
+    /**
      * Explicitly unloads the currently active model from memory.
      */
     suspend fun unloadActiveModel(): Boolean = mutex.withLock {
-        val current = _activeModel.value ?: return true
+        val currentName = _activeModel.value?.displayName ?: _activeCustomModel.value?.name ?: return true
         val memBefore = memoryMonitor.getSnapshot().usedRamMB
-        _state.value = ModelManagerState.Unloading(current)
+        val currentType = _activeModel.value
+        if (currentType != null) {
+            _state.value = ModelManagerState.Unloading(currentType)
+        }
         val start = System.currentTimeMillis()
 
         nativeContextHandle = null
         _contextTokensUsed.value = 0
         _activeModel.value = null
+        _activeCustomModel.value = null
 
         System.gc()
         delay(150)
@@ -121,7 +190,7 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
 
         logTransition(
             action = "UNLOAD_IDLE",
-            modelName = current.displayName,
+            modelName = currentName,
             ramBefore = memBefore,
             ramAfter = memAfter,
             durationMs = System.currentTimeMillis() - start
@@ -130,11 +199,11 @@ class AIModelManager(private val memoryMonitor: MemoryMonitor) {
     }
 
     /**
-     * Updates and validates context token usage against the strict 1024 token limit.
+     * Updates and validates context token usage against the configured ceiling.
      */
-    fun updateContextUsage(tokens: Int): Boolean {
-        _contextTokensUsed.value = tokens.coerceAtMost(1024)
-        return tokens <= 1024
+    fun updateContextUsage(tokens: Int, maxTokens: Int = 1024): Boolean {
+        _contextTokensUsed.value = tokens.coerceAtMost(maxTokens)
+        return tokens <= maxTokens
     }
 
     private fun logTransition(

@@ -131,10 +131,15 @@ fun MainChatScreen(
         }
     }
 
-    val modelDisplayTitle = remember(activeModel, inferenceMode) {
+    val modelDisplayTitle: String = remember(activeModel, inferenceMode) {
         if (inferenceMode == InferenceMode.GEMINI_LIVE) "Gemini Live"
         else when (activeModel) {
             ModelType.REASONING -> "Qwen 2.5 (1.5B)"
+            ModelType.QWEN_05B -> "Qwen 2.5 (0.5B)"
+            ModelType.TINY_LLAMA -> "TinyLlama (1.1B)"
+            ModelType.SMOLLM2_17B -> "SmolLM2 (1.7B)"
+            ModelType.DEEPSEEK_R1_15B -> "DeepSeek-R1 (1.5B)"
+            ModelType.PHI2_27B -> "Phi-2 (2.7B)"
             ModelType.VISION_OCR -> "ML Kit Vision OCR"
             ModelType.EMBEDDING -> "MiniLM Embeddings"
             null -> "Qwen 2.5 (1.5B)"

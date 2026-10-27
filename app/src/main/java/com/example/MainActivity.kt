@@ -53,11 +53,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.model.HuggingFaceModel
 import com.example.model.ModelType
+import com.example.model.UserSettings
 import com.example.service.InferenceMode
 import com.example.ui.components.AppNavigationDrawer
 import com.example.ui.components.AttachmentSheet
 import com.example.ui.components.DocumentVaultScreen
+import com.example.ui.components.HuggingFaceModelHubScreen
 import com.example.ui.components.LiveVoiceChatSheet
 import com.example.ui.components.MainChatScreen
 import com.example.ui.components.ModelSelectorSheet
@@ -69,7 +72,7 @@ import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
 enum class AppSubScreen {
-    CHAT, VAULT, INSPECTOR
+    CHAT, VAULT, INSPECTOR, MODELS
 }
 
 class MainActivity : ComponentActivity() {
@@ -115,6 +118,10 @@ fun EdgeAIApp(viewModel: MainViewModel) {
     val transitionLogs by viewModel.transitionLogs.collectAsState()
     val savedDocuments by viewModel.savedDocuments.collectAsState()
     val activeScenarioTitle by viewModel.activeScenarioTitle.collectAsState()
+
+    val userSettings by viewModel.userSettings.collectAsState()
+    val curatedModels by viewModel.curatedModels.collectAsState()
+    val customModels by viewModel.customModels.collectAsState()
 
     // Navigation and Sheet visibility states
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -216,6 +223,10 @@ fun EdgeAIApp(viewModel: MainViewModel) {
                 onOpenInspector = {
                     coroutineScope.launch { drawerState.close() }
                     currentSubScreen = AppSubScreen.INSPECTOR
+                },
+                onOpenModels = {
+                    coroutineScope.launch { drawerState.close() }
+                    currentSubScreen = AppSubScreen.MODELS
                 },
                 onOpenSettings = {
                     coroutineScope.launch { drawerState.close() }
@@ -359,6 +370,60 @@ fun EdgeAIApp(viewModel: MainViewModel) {
                             )
                         }
                     }
+
+                    AppSubScreen.MODELS -> {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            TopAppBar(
+                                title = {
+                                    Text(
+                                        text = "Hugging Face Model Hub",
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                navigationIcon = {
+                                    IconButton(onClick = { currentSubScreen = AppSubScreen.CHAT }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Back to Chat"
+                                        )
+                                    }
+                                },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            )
+                            HuggingFaceModelHubScreen(
+                                curatedModels = curatedModels,
+                                customModels = customModels,
+                                onDownloadModel = { model ->
+                                    viewModel.downloadHuggingFaceModel(model)
+                                    Toast.makeText(context, "Started download of ${model.name}...", Toast.LENGTH_SHORT).show()
+                                },
+                                onDownloadCustomUrl = { input ->
+                                    val result = viewModel.downloadCustomModel(input)
+                                    if (result.isSuccess) {
+                                        Toast.makeText(context, "Downloading custom model: ${result.getOrThrow().name}", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, result.exceptionOrNull()?.message ?: "Invalid model input", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onCancelDownload = { id ->
+                                    viewModel.cancelModelDownload(id)
+                                    Toast.makeText(context, "Download cancelled", Toast.LENGTH_SHORT).show()
+                                },
+                                onDeleteModel = { id ->
+                                    viewModel.deleteDownloadedModel(id)
+                                    Toast.makeText(context, "Model deleted to free storage", Toast.LENGTH_SHORT).show()
+                                },
+                                onLoadModel = { model ->
+                                    viewModel.loadDownloadedModel(model)
+                                    Toast.makeText(context, "Loading ${model.name} into RAM...", Toast.LENGTH_SHORT).show()
+                                    currentSubScreen = AppSubScreen.CHAT
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -367,9 +432,14 @@ fun EdgeAIApp(viewModel: MainViewModel) {
                 ModelSelectorSheet(
                     activeModel = activeModel,
                     inferenceMode = inferenceMode,
+                    downloadedModels = curatedModels + customModels,
                     onSelectModel = { selected ->
                         viewModel.switchModel(selected)
-                        Toast.makeText(context, "Switching to ${selected.name}...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Switching to ${selected.displayName}...", Toast.LENGTH_SHORT).show()
+                    },
+                    onLoadDownloadedModel = { hf ->
+                        viewModel.loadDownloadedModel(hf)
+                        Toast.makeText(context, "Loaded ${hf.name} into RAM", Toast.LENGTH_SHORT).show()
                     },
                     onToggleInferenceMode = {
                         viewModel.toggleInferenceMode()
@@ -379,6 +449,9 @@ fun EdgeAIApp(viewModel: MainViewModel) {
                     onUnloadActiveModel = {
                         viewModel.unloadModelManually()
                         Toast.makeText(context, "Active model unloaded to free RAM", Toast.LENGTH_SHORT).show()
+                    },
+                    onOpenModelHub = {
+                        currentSubScreen = AppSubScreen.MODELS
                     },
                     onDismiss = { showModelSelectorSheet = false }
                 )
@@ -425,6 +498,35 @@ fun EdgeAIApp(viewModel: MainViewModel) {
                         viewModel.toggleInferenceMode()
                     },
                     memorySnapshot = memorySnapshot,
+                    userSettings = userSettings,
+                    onUpdateUserSettings = { updated ->
+                        viewModel.updateUserSettings(updated)
+                    },
+                    curatedModels = curatedModels,
+                    customModels = customModels,
+                    onDownloadModel = { model ->
+                        viewModel.downloadHuggingFaceModel(model)
+                        Toast.makeText(context, "Started download of ${model.name}...", Toast.LENGTH_SHORT).show()
+                    },
+                    onDownloadCustomUrl = { input ->
+                        val result = viewModel.downloadCustomModel(input)
+                        if (result.isSuccess) {
+                            Toast.makeText(context, "Downloading: ${result.getOrThrow().name}", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, result.exceptionOrNull()?.message ?: "Error", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onCancelDownload = { id ->
+                        viewModel.cancelModelDownload(id)
+                    },
+                    onDeleteModel = { id ->
+                        viewModel.deleteDownloadedModel(id)
+                        Toast.makeText(context, "Model deleted", Toast.LENGTH_SHORT).show()
+                    },
+                    onLoadModel = { model ->
+                        viewModel.loadDownloadedModel(model)
+                        Toast.makeText(context, "Loading ${model.name}...", Toast.LENGTH_SHORT).show()
+                    },
                     onForceGC = {
                         viewModel.unloadModelManually()
                         Toast.makeText(context, "Model unloaded & GC requested", Toast.LENGTH_SHORT).show()

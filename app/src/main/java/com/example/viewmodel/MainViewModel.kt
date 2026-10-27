@@ -9,12 +9,15 @@ import com.example.data.database.AppDatabase
 import com.example.data.model.ChatMessageEntity
 import com.example.data.model.ConversationEntity
 import com.example.data.model.DocumentEntity
+import com.example.model.HuggingFaceModel
 import com.example.model.ModelManagerState
 import com.example.model.ModelTransitionLog
 import com.example.model.ModelType
+import com.example.model.UserSettings
 import com.example.service.AIModelManager
 import com.example.service.DeviceMemorySnapshot
 import com.example.service.GeminiService
+import com.example.service.HuggingFaceDownloadManager
 import com.example.service.InferenceMode
 import com.example.service.LocalEmbeddingEngine
 import com.example.service.MemoryMonitor
@@ -116,6 +119,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    // Hugging Face Model Downloader
+    val hfDownloadManager = HuggingFaceDownloadManager(application, viewModelScope)
+    val curatedModels: StateFlow<List<HuggingFaceModel>> = hfDownloadManager.curatedModels
+    val customModels: StateFlow<List<HuggingFaceModel>> = hfDownloadManager.customModels
+
+    // User Inference Settings (System Prompt, Context Window, Temperature, etc.)
+    private val _userSettings = MutableStateFlow(UserSettings())
+    val userSettings: StateFlow<UserSettings> = _userSettings.asStateFlow()
+
+    fun updateUserSettings(settings: UserSettings) {
+        _userSettings.value = settings
+    }
+
+    fun updateSystemPrompt(prompt: String) {
+        _userSettings.value = _userSettings.value.copy(systemPrompt = prompt)
+    }
+
+    fun updateContextWindow(tokens: Int) {
+        _userSettings.value = _userSettings.value.copy(contextWindowTokens = tokens)
+    }
+
+    fun updateTemperature(temp: Float) {
+        _userSettings.value = _userSettings.value.copy(temperature = temp)
+    }
+
+    fun updateTopP(topP: Float) {
+        _userSettings.value = _userSettings.value.copy(topP = topP)
+    }
+
+    fun updateMaxOutputTokens(tokens: Int) {
+        _userSettings.value = _userSettings.value.copy(maxOutputTokens = tokens)
+    }
+
+    fun updateStreamSpeed(speedMs: Long) {
+        _userSettings.value = _userSettings.value.copy(streamDelayMs = speedMs)
+    }
+
+    fun updateAutoEvict(autoEvict: Boolean) {
+        _userSettings.value = _userSettings.value.copy(autoEvictOnBackground = autoEvict)
+    }
+
+    fun resetUserSettings() {
+        _userSettings.value = UserSettings()
+    }
+
+    // Hugging Face Actions
+    fun downloadHuggingFaceModel(model: HuggingFaceModel) {
+        hfDownloadManager.startDownload(model)
+    }
+
+    fun downloadCustomModel(input: String): Result<HuggingFaceModel> {
+        return hfDownloadManager.startCustomDownload(input)
+    }
+
+    fun cancelModelDownload(modelId: String) {
+        hfDownloadManager.cancelDownload(modelId)
+    }
+
+    fun deleteDownloadedModel(modelId: String): Boolean {
+        return hfDownloadManager.deleteModel(modelId)
+    }
+
+    fun loadDownloadedModel(model: HuggingFaceModel) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            modelManager.loadHuggingFaceModel(model)
+            _isBusy.value = false
+        }
+    }
 
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
@@ -416,7 +489,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _generationState.value = GenerationState.GENERATING
 
                 val fullTextBuilder = StringBuilder()
-                reasoningEngine.streamInference(prompt, chunks, cleanQuery, currentMode).collect { token ->
+                reasoningEngine.streamInference(prompt, chunks, cleanQuery, currentMode, _userSettings.value).collect { token ->
                     fullTextBuilder.append(token)
                     _chatMessages.value = _chatMessages.value.map { msg ->
                         if (msg.id == assistantMsgId) {
@@ -603,7 +676,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             modelManager.updateContextUsage(estTokens)
 
             val fullTextBuilder = StringBuilder()
-            reasoningEngine.streamInference(prompt, dummyChunks, userQuery, _inferenceMode.value).collect { token ->
+            reasoningEngine.streamInference(prompt, dummyChunks, userQuery, _inferenceMode.value, _userSettings.value).collect { token ->
                 fullTextBuilder.append(token)
                 _chatMessages.value = _chatMessages.value.map { msg ->
                     if (msg.id == assistantMsgId) {
@@ -782,7 +855,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             modelManager.updateContextUsage(estTokens)
 
             val fullTextBuilder = StringBuilder()
-            reasoningEngine.streamInference(prompt, topChunks, docQuery, _inferenceMode.value).collect { token ->
+            reasoningEngine.streamInference(prompt, topChunks, docQuery, _inferenceMode.value, _userSettings.value).collect { token ->
                 fullTextBuilder.append(token)
                 _chatMessages.value = _chatMessages.value.map { msg ->
                     if (msg.id == assistantMsgId) {
